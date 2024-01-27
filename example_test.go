@@ -1,12 +1,15 @@
-# mutableware
+package mutableware_test
 
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
 
-mutableware is a middleware package that allows for the modification of middleware. It uses generics to define Request and Response types. All handlers have both `Validate(...)` and `Handle(...)` functions.
+	"github.com/erinpentecost/mutableware"
+	"github.com/stretchr/testify/require"
+)
 
-
-## Example
-
-```go
 // Build a new Handler that will tell us which sounds that animals make.
 type Animal string
 type Sound string
@@ -85,5 +88,3 @@ func TestExample(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, Sound("BARK!"), duckSound)
 }
-
-```
