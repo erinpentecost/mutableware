@@ -1,12 +1,25 @@
 # mutableware
 
 
-mutableware is a middleware package that allows for the modification of middleware. It uses generics to define Request and Response types. All handlers have both `Validate(...)` and `Handle(...)` functions.
+mutableware is a middleware package that allows for the modification of middleware. It uses generics to define Request and Response types.
+All handlers have a `Handle[RequestType, ResponseType](ctx context.Context, request RequestType) (ResponseType, error)` function.
 
 
 ## Example
 
 ```go
+package mutableware_test
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/erinpentecost/mutableware"
+	"github.com/stretchr/testify/require"
+)
+
 // Build a new Handler that will tell us which sounds that animals make.
 type Animal string
 type Sound string
@@ -14,11 +27,6 @@ type Sound string
 type AnimalSoundHandler struct {
 	animal Animal
 	sound  Sound
-}
-
-func (ash *AnimalSoundHandler) Validate(ctx context.Context, request Animal, next mutableware.CurriedValidatorFunc[Animal]) error {
-	// This example doesn't use the Validate() function of handlers.
-	return next(ctx, request)
 }
 
 func (ash *AnimalSoundHandler) Handle(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
@@ -33,12 +41,11 @@ func TestExample(t *testing.T) {
 
 	hc := mutableware.NewHandlerContainer[Animal, Sound]()
 	// The first handler to be added will act as a sentinel to catch unknown Animal requests.
-	hc.Add(mutableware.NewAnonymousHandler[Animal, Sound](
-		nil,
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
 			return "", fmt.Errorf("unknown animal")
 		},
-	))
+	)
 	// Now we'll deal with ducks.
 	duckHandlerID := hc.Add(&AnimalSoundHandler{
 		animal: Animal("duck"),
@@ -50,8 +57,7 @@ func TestExample(t *testing.T) {
 		sound:  Sound("moo"),
 	})
 	// This handler will make the sounds really loud.
-	hc.Add(mutableware.NewAnonymousHandler[Animal, Sound](
-		nil,
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
 			response, err := next(ctx, request)
 			if err != nil {
@@ -59,7 +65,7 @@ func TestExample(t *testing.T) {
 			}
 			return Sound(fmt.Sprintf("%s!", strings.ToUpper(string(response)))), nil
 		},
-	))
+	)
 
 	// Now lets try sending in requests to the handler container.
 	duckSound, err := hc.Handle(context.Background(), "duck")

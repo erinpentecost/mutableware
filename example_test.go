@@ -19,11 +19,6 @@ type AnimalSoundHandler struct {
 	sound  Sound
 }
 
-func (ash *AnimalSoundHandler) Validate(ctx context.Context, request Animal, next mutableware.CurriedValidatorFunc[Animal]) error {
-	// This example doesn't use the Validate() function of handlers.
-	return next(ctx, request)
-}
-
 func (ash *AnimalSoundHandler) Handle(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
 	if request == ash.animal {
 		return ash.sound, nil
@@ -36,12 +31,11 @@ func TestExample(t *testing.T) {
 
 	hc := mutableware.NewHandlerContainer[Animal, Sound]()
 	// The first handler to be added will act as a sentinel to catch unknown Animal requests.
-	hc.Add(mutableware.NewAnonymousHandler[Animal, Sound](
-		nil,
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
 			return "", fmt.Errorf("unknown animal")
 		},
-	))
+	)
 	// Now we'll deal with ducks.
 	duckHandlerID := hc.Add(&AnimalSoundHandler{
 		animal: Animal("duck"),
@@ -53,8 +47,7 @@ func TestExample(t *testing.T) {
 		sound:  Sound("moo"),
 	})
 	// This handler will make the sounds really loud.
-	hc.Add(mutableware.NewAnonymousHandler[Animal, Sound](
-		nil,
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request Animal, next mutableware.CurriedHandlerFunc[Animal, Sound]) (Sound, error) {
 			response, err := next(ctx, request)
 			if err != nil {
@@ -62,7 +55,7 @@ func TestExample(t *testing.T) {
 			}
 			return Sound(fmt.Sprintf("%s!", strings.ToUpper(string(response)))), nil
 		},
-	))
+	)
 
 	// Now lets try sending in requests to the handler container.
 	duckSound, err := hc.Handle(context.Background(), "duck")

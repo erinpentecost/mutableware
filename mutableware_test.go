@@ -2,7 +2,6 @@ package mutableware_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -14,25 +13,17 @@ import (
 // TestBasicWrapping tests basic functionality.
 func TestBasicWrapping(t *testing.T) {
 	output := []int{}
-	var ErrNoOdds = fmt.Errorf("odd numbers not allowed")
-
 	hc := mutableware.NewHandlerContainer[int, string]()
 
-	baseID := hc.Add(mutableware.NewAnonymousHandler(
-		func(ctx context.Context, message int, next mutableware.CurriedValidatorFunc[int]) error {
-			return next(ctx, message)
-		},
+	baseID := hc.AddAnonymousHandler(
 		func(ctx context.Context, message int, next mutableware.CurriedHandlerFunc[int, string]) (string, error) {
 			output = append(output, message)
 			// don't continue execution to next in this case
 			return "writer", nil
 		},
-	))
+	)
 
-	doublerID := hc.Add(mutableware.NewAnonymousHandler(
-		func(ctx context.Context, message int, next mutableware.CurriedValidatorFunc[int]) error {
-			return next(ctx, message)
-		},
+	doublerID := hc.AddAnonymousHandler(
 		func(ctx context.Context, message int, next mutableware.CurriedHandlerFunc[int, string]) (string, error) {
 			out, err := next(ctx, 2*message)
 			if err != nil {
@@ -40,27 +31,9 @@ func TestBasicWrapping(t *testing.T) {
 			}
 			return fmt.Sprintf("doubler %s", out), nil
 		},
-	))
-
-	noOddsID := hc.Add(mutableware.NewAnonymousHandler(
-		func(ctx context.Context, message int, next mutableware.CurriedValidatorFunc[int]) error {
-			if message%2 == 1 {
-				return errors.Join(ErrNoOdds, next(ctx, message))
-			}
-			return next(ctx, message)
-		},
-		func(ctx context.Context, message int, next mutableware.CurriedHandlerFunc[int, string]) (string, error) {
-			return next(ctx, message)
-		},
-	))
+	)
 
 	require.GreaterOrEqual(t, doublerID, baseID)
-
-	// test validation fail path
-	err := hc.Validate(context.Background(), 5)
-	require.ErrorIs(t, err, ErrNoOdds)
-	require.ErrorIs(t, err, mutableware.ErrValidate)
-	require.Equal(t, "validateError handler=12 odd numbers not allowed", err.Error())
 
 	// test that we doubled the message
 	res, err := hc.Handle(context.Background(), 4)
@@ -69,7 +42,6 @@ func TestBasicWrapping(t *testing.T) {
 	require.Equal(t, []int{4 * 2}, output)
 
 	// test removal of handlers
-	hc.Remove(noOddsID)
 	hc.Remove(doublerID)
 	res, err = hc.Handle(context.Background(), 1)
 	require.NoError(t, err)
@@ -91,25 +63,19 @@ func TestPassByReference(t *testing.T) {
 
 	hc := mutableware.NewHandlerContainer[*int32, any]()
 
-	baseID := hc.Add(mutableware.NewAnonymousHandler(
-		func(ctx context.Context, message *int32, next mutableware.CurriedValidatorFunc[*int32]) error {
-			return next(ctx, message)
-		},
+	baseID := hc.AddAnonymousHandler(
 		func(ctx context.Context, message *int32, next mutableware.CurriedHandlerFunc[*int32, any]) (any, error) {
 			output = append(output, message)
 			return next(ctx, message)
 		},
-	))
+	)
 
-	doublerID := hc.Add(mutableware.NewAnonymousHandler(
-		func(ctx context.Context, message *int32, next mutableware.CurriedValidatorFunc[*int32]) error {
-			return next(ctx, message)
-		},
+	doublerID := hc.AddAnonymousHandler(
 		func(ctx context.Context, message *int32, next mutableware.CurriedHandlerFunc[*int32, any]) (any, error) {
 			atomic.SwapInt32(message, 2*(*message))
 			return next(ctx, message)
 		},
-	))
+	)
 
 	require.GreaterOrEqual(t, doublerID, baseID)
 
@@ -133,7 +99,7 @@ func TestEmptyContainer(t *testing.T) {
 
 func TestNilAnonFunc(t *testing.T) {
 	hc := mutableware.NewHandlerContainer[string, any]()
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil, nil))
+	hc.AddAnonymousHandler(nil)
 	resp, err := hc.Handle(context.Background(), "don't panic")
 	require.NoError(t, err)
 	require.Zero(t, resp)
@@ -141,14 +107,14 @@ func TestNilAnonFunc(t *testing.T) {
 
 func TestAddLast(t *testing.T) {
 	hc := mutableware.NewHandlerContainer[string, any]()
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil,
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			return "a", nil
-		}), mutableware.AddOptionName("a"))
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil,
+		}, mutableware.AddOptionName("a"))
+	hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			return "b", nil
-		}), mutableware.AddOptionLast(), mutableware.AddOptionName("b"))
+		}, mutableware.AddOptionLast(), mutableware.AddOptionName("b"))
 	resp, err := hc.Handle(context.Background(), "")
 	require.NoError(t, err)
 	require.Equal(t, "a", resp)
@@ -157,13 +123,13 @@ func TestAddLast(t *testing.T) {
 func TestHandleErr(t *testing.T) {
 	expectedErr := fmt.Errorf("an_error")
 	hc := mutableware.NewHandlerContainer[string, any]()
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil, nil))
-	errHandlerID := hc.Add(mutableware.NewAnonymousHandler[string, any](nil,
+	hc.AddAnonymousHandler(nil)
+	errHandlerID := hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			return nil, expectedErr
-		}))
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil, nil))
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil, nil))
+		})
+	hc.AddAnonymousHandler(nil)
+	hc.AddAnonymousHandler(nil)
 
 	resp, err := hc.Handle(context.Background(), "should throw an error")
 	require.ErrorIs(t, err, expectedErr)
@@ -173,11 +139,11 @@ func TestHandleErr(t *testing.T) {
 	require.Zero(t, resp)
 
 	// swap handler with one that has a name
-	newID := hc.Add(mutableware.NewAnonymousHandler[string, any](nil,
+	newID := hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			return nil, expectedErr
 		},
-	), mutableware.AddOptionSwap(errHandlerID), mutableware.AddOptionName("new"))
+		mutableware.AddOptionSwap(errHandlerID), mutableware.AddOptionName("new"))
 	resp, err = hc.Handle(context.Background(), "should throw an error")
 	require.ErrorIs(t, err, expectedErr)
 	require.ErrorIs(t, err, mutableware.ErrHandle)
@@ -188,31 +154,19 @@ func TestHandleErr(t *testing.T) {
 
 func TestContext(t *testing.T) {
 	hc := mutableware.NewHandlerContainer[string, any]()
-	var firstValidationCtx context.Context
-	var secondValidationCtx context.Context
 	var firstHandleCtx context.Context
 	var secondHandleCtx context.Context
-	hc.Add(mutableware.NewAnonymousHandler[string, any](nil, nil))
-	firstHandlerID := hc.Add(mutableware.NewAnonymousHandler[string, any](
-		func(ctx context.Context, request string, next mutableware.CurriedValidatorFunc[string]) error {
-			firstValidationCtx = ctx
-			return next(ctx, request)
-		},
+	hc.AddAnonymousHandler(nil)
+	firstHandlerID := hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			firstHandleCtx = ctx
 			return next(ctx, request)
-		}), mutableware.AddOptionName("first"))
-	secondHandlerID := hc.Add(mutableware.NewAnonymousHandler[string, any](
-		func(ctx context.Context, request string, next mutableware.CurriedValidatorFunc[string]) error {
-			secondValidationCtx = ctx
-			return next(ctx, request)
-		},
+		}, mutableware.AddOptionName("first"))
+	secondHandlerID := hc.AddAnonymousHandler(
 		func(ctx context.Context, request string, next mutableware.CurriedHandlerFunc[string, any]) (any, error) {
 			secondHandleCtx = ctx
 			return next(ctx, request)
-		}), mutableware.AddOptionName("second"))
-
-	_ = hc.Validate(context.Background(), "ok")
+		}, mutableware.AddOptionName("second"))
 
 	expectedFirstStack := []mutableware.HandlerInfo{
 		{
@@ -230,9 +184,6 @@ func TestContext(t *testing.T) {
 			Name: "second",
 		},
 	}
-	require.Equal(t, expectedFirstStack, mutableware.GetHandlerInfoFromContext(firstValidationCtx))
-	require.Equal(t, expectedSecondStack, mutableware.GetHandlerInfoFromContext(secondValidationCtx))
-
 	_, _ = hc.Handle(context.Background(), "ok")
 
 	require.Equal(t, expectedFirstStack, mutableware.GetHandlerInfoFromContext(firstHandleCtx))
